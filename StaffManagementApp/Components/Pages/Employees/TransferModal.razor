@@ -1,0 +1,109 @@
+@inject ICareerService CareerService
+@inject IDepartmentService DeptService
+
+<div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+    <div class="modal-dialog">
+        <div class="modal-content shadow">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Кадровый перевод</h5>
+                <button type="button" class="btn-close" @onclick="OnCancel"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger d-flex align-items-center mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+                        <div>@_error</div>
+                    </div>
+                }
+                <EditForm Model="_model" OnValidSubmit="HandleSubmit">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label">Новое подразделение *</label>
+                        <InputSelect class="form-select" @bind-Value="_model.DepartmentId">
+                            <option value="0">— Выберите —</option>
+                            @foreach (var dept in _activeDepts)
+                            {
+                                <option value="@dept.Id">[@dept.Code] @dept.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Новая должность *</label>
+                        <InputText class="form-control" @bind-Value="_model.Position" />
+                        <ValidationMessage For="() => _model.Position" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Дата перевода *</label>
+                        <InputDate class="form-control" @bind-Value="_model.TransferDate" />
+                        @if (CurrentEventDate.HasValue)
+                        {
+                            <small class="text-muted">Не ранее @CurrentEventDate.Value.ToLocalTime().ToString("dd.MM.yyyy")</small>
+                        }
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Комментарий</label>
+                        <InputTextArea class="form-control" @bind-Value="_model.Comment" rows="2" />
+                    </div>
+
+                    <div class="modal-footer px-0 pb-0">
+                        <button type="button" class="btn btn-secondary" @onclick="OnCancel">Отмена</button>
+                        <button type="submit" class="btn btn-warning" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Перевести
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int EmployeeId { get; set; }
+    /// <summary>Дата последнего кадрового события (для подсказки минимальной даты).</summary>
+    [Parameter] public DateTime? CurrentEventDate { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private TransferFormModel _model = new() { TransferDate = DateTime.Today };
+    private List<Department> _activeDepts = new();
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _activeDepts = await DeptService.GetActiveAsync();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (_model.DepartmentId == 0)
+        {
+            _error = "Выберите подразделение";
+            return;
+        }
+        _saving = true;
+        _error = null;
+        try
+        {
+            await CareerService.TransferAsync(EmployeeId, _model.DepartmentId, _model.Position, _model.TransferDate, _model.Comment);
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _saving = false;
+    }
+
+    private class TransferFormModel
+    {
+        public int DepartmentId { get; set; }
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Укажите должность")]
+        public string Position { get; set; } = string.Empty;
+        public DateTime TransferDate { get; set; } = DateTime.Today;
+        public string? Comment { get; set; }
+    }
+}

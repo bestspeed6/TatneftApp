@@ -1,0 +1,154 @@
+@using StaffManagementApp.Data.Entities
+@using StaffManagementApp.Services
+@inject IDepartmentService DeptService
+
+<div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+    <div class="modal-dialog">
+        <div class="modal-content shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">@(Department.Id == 0 ? "Добавить подразделение" : "Редактировать подразделение")</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="OnCancel"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger d-flex align-items-center mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+                        <div>@_error</div>
+                    </div>
+                }
+                <EditForm Model="_model" OnValidSubmit="HandleSubmit">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label">Код (ровно 4 цифры) <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="_model.Code" maxlength="4" placeholder="Например: 1100" />
+                        <ValidationMessage For="() => _model.Code" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Полное наименование <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="_model.Name" maxlength="150" />
+                        <ValidationMessage For="() => _model.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Аббревиатура <span class="text-danger">*</span></label>
+                        <InputText class="form-control" @bind-Value="_model.Abbreviation" maxlength="20" />
+                        <ValidationMessage For="() => _model.Abbreviation" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Дата создания</label>
+                        <InputDate class="form-control" @bind-Value="_model.CreatedAt" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Родительское подразделение</label>
+                        <InputSelect class="form-select" @bind-Value="_model.ParentDepartmentId">
+                            <option value="">— Нет (корневое) —</option>
+                            @foreach (var dept in AllDepartments.Where(d => d.Id != Department.Id && d.IsActive))
+                            {
+                                <option value="@dept.Id">[@dept.Code] @dept.Name</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div class="modal-footer px-0 pb-0">
+                        <button type="button" class="btn btn-secondary" @onclick="OnCancel">Отмена</button>
+                        <button type="submit" class="btn btn-primary" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Сохранить
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Department Department { get; set; } = new();
+    [Parameter] public List<Department> AllDepartments { get; set; } = new();
+    [Parameter] public EventCallback<Department> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private DepartmentFormModel _model = new();
+    private bool _saving;
+    private string? _error;
+
+    protected override void OnParametersSet()
+    {
+        _model = new DepartmentFormModel
+        {
+            Code = Department.Code,
+            Name = Department.Name,
+            Abbreviation = Department.Abbreviation,
+            CreatedAt = Department.CreatedAt == default ? DateTime.Today : Department.CreatedAt.ToLocalTime(),
+            ParentDepartmentId = Department.ParentDepartmentId
+        };
+        _error = null;
+    }
+
+    private async Task HandleSubmit()
+    {
+        _saving = true;
+        _error = null;
+
+        var code = _model.Code.Trim();
+
+        // Ручная валидация кода — ровно 4 цифры
+        if (!System.Text.RegularExpressions.Regex.IsMatch(code, @"^\d{4}$"))
+        {
+            _error = "Код подразделения должен содержать ровно 4 цифры (например: 1100).";
+            _saving = false;
+            return;
+        }
+
+        // Проверка уникальности кода
+        var excludeId = Department.Id == 0 ? (int?)null : Department.Id;
+        var isUnique = await DeptService.IsCodeUniqueAsync(code, excludeId);
+        if (!isUnique)
+        {
+            _error = $"Подразделение с кодом {code} уже существует в базе данных.";
+            _saving = false;
+            return;
+        }
+
+        var dept = new Department
+        {
+            Id = Department.Id,
+            Code = code,
+            Name = _model.Name.Trim(),
+            Abbreviation = _model.Abbreviation.Trim(),
+            CreatedAt = _model.CreatedAt.ToUniversalTime(),
+            ClosedAt = Department.ClosedAt,
+            ParentDepartmentId = _model.ParentDepartmentId
+        };
+
+        try
+        {
+            await OnSave.InvokeAsync(dept);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _saving = false;
+    }
+
+    private class DepartmentFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Код обязателен")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^\d{4}$",
+            ErrorMessage = "Код: ровно 4 цифры (например: 1100)")]
+        public string Code { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Наименование обязательно")]
+        [System.ComponentModel.DataAnnotations.MaxLength(150, ErrorMessage = "Не более 150 символов")]
+        public string Name { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Аббревиатура обязательна")]
+        [System.ComponentModel.DataAnnotations.MaxLength(20, ErrorMessage = "Не более 20 символов")]
+        public string Abbreviation { get; set; } = string.Empty;
+
+        public DateTime CreatedAt { get; set; } = DateTime.Today;
+        public int? ParentDepartmentId { get; set; }
+    }
+}

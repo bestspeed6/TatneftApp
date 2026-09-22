@@ -1,0 +1,165 @@
+@page "/employees"
+@rendermode InteractiveServer
+@inject IEmployeeService EmpService
+@inject IFileStorageService FileService
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>Сотрудники</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>👥 Сотрудники</h3>
+    <button class="btn btn-success" @onclick="() => _showHireModal = true">
+        <i class="bi bi-person-plus-fill me-1"></i> Принять на работу
+    </button>
+</div>
+
+<!-- Search -->
+<div class="input-group mb-3">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="text" class="form-control" placeholder="Поиск по ФИО или табельному номеру..."
+           value="@_search" @oninput="OnSearch" />
+    @if (!string.IsNullOrEmpty(_search))
+    {
+        <button class="btn btn-outline-secondary" @onclick="ClearSearch">✕</button>
+    }
+</div>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_employees.Count == 0)
+{
+    <div class="alert alert-info">Сотрудники не найдены.</div>
+}
+else
+{
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+        @foreach (var item in _employees)
+        {
+            var empId = item.Employee.Id;
+            <div class="col">
+                <div class="card h-100 shadow-sm @(item.IsActive ? "" : "border-secondary")"
+                     style="cursor:pointer" @onclick="() => GoToEmployee(empId)">
+                    <div class="card-body d-flex align-items-center gap-3">
+                        <img src="@FileService.GetPhotoUrl(item.Employee.PhotoPath, item.Employee.Gender.ToString())"
+                             alt="Фото" class="rounded-circle"
+                             style="width:60px;height:60px;object-fit:cover;" />
+                        <div>
+                            <h6 class="mb-1">@item.Employee.FullName</h6>
+                            <small class="text-muted">Таб. №: @item.Employee.PersonnelNumber</small><br />
+                            @if (item.CurrentRecord != null)
+                            {
+                                <small class="text-muted">@item.CurrentRecord.Department?.Name</small><br />
+                                <small class="text-muted">@item.CurrentRecord.Position</small>
+                            }
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex justify-content-between align-items-center">
+                        @if (item.IsActive)
+                        {
+                            <span class="badge bg-success">Активен</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-secondary">Уволен</span>
+                        }
+                        <small class="text-muted">@(item.Employee.Gender == Gender.Male ? "М" : "Ж")</small>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger mt-3">@_error</div>
+}
+
+@if (_showHireModal)
+{
+    <HireModal OnSaved="HandleHired" OnCancel="() => _showHireModal = false" />
+}
+
+@code {
+    private List<EmployeeWithStatus> _employees = new();
+    private bool _loading = true;
+    private bool _showHireModal;
+    private string _search = string.Empty;
+    private string? _error;
+    private System.Timers.Timer? _debounce;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Перезагружаем список при каждом возврате на эту страницу
+        Nav.LocationChanged += OnLocationChanged;
+        await LoadAsync();
+    }
+
+    private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Обновляем только когда вернулись на /employees
+        if (e.Location.EndsWith("/employees", StringComparison.OrdinalIgnoreCase) ||
+            e.Location.Contains("/employees?", StringComparison.OrdinalIgnoreCase))
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            });
+        }
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        _debounce?.Dispose();
+    }
+
+    private void GoToEmployee(int id) => Nav.NavigateTo("/employees/" + id);
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _employees = await EmpService.GetAllWithStatusAsync(_search);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+    }
+
+    private void OnSearch(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? string.Empty;
+        _debounce?.Stop();
+        _debounce?.Dispose();
+        _debounce = new System.Timers.Timer(300);
+        _debounce.Elapsed += async (s, ev) =>
+        {
+            _debounce?.Dispose();
+            await InvokeAsync(LoadAsync);
+            await InvokeAsync(StateHasChanged);
+        };
+        _debounce.AutoReset = false;
+        _debounce.Start();
+    }
+
+    private async Task ClearSearch()
+    {
+        _search = string.Empty;
+        await LoadAsync();
+    }
+
+    private async Task HandleHired()
+    {
+        _showHireModal = false;
+        await LoadAsync();
+    }
+}

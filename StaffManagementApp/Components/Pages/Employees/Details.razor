@@ -1,0 +1,240 @@
+@page "/employees/{Id:int}"
+@rendermode InteractiveServer
+@inject IEmployeeService EmpService
+@inject ICareerService CareerService
+@inject IFileStorageService FileService
+@inject NavigationManager Nav
+
+<PageTitle>@(_employee?.FullName ?? "Сотрудник")</PageTitle>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_employee == null)
+{
+    <div class="alert alert-danger">Сотрудник не найден.</div>
+}
+else
+{
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/employees">Сотрудники</a></li>
+            <li class="breadcrumb-item active">@_employee.FullName</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Profile Card -->
+        <div class="col-md-4">
+            <div class="card shadow text-center p-3">
+                <img src="@FileService.GetPhotoUrl(_employee.PhotoPath, _employee.Gender.ToString())"
+                     alt="Фото" class="rounded-circle mx-auto d-block mb-3"
+                     style="width:120px;height:120px;object-fit:cover;" />
+                <h4>@_employee.FullName</h4>
+                <p class="text-muted mb-1">Таб. №: @_employee.PersonnelNumber</p>
+                <p class="mb-1">
+                    @if (_isActive)
+                    {
+                        <span class="badge bg-success fs-6">Активен</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary fs-6">Уволен</span>
+                    }
+                </p>
+                @if (_currentRecord != null)
+                {
+                    <p class="mb-1 text-muted">
+                        <i class="bi bi-building me-1"></i>@_currentRecord.Department?.Name
+                    </p>
+                    <p class="text-muted"><i class="bi bi-briefcase me-1"></i>@_currentRecord.Position</p>
+                }
+
+                <hr />
+                <!-- Computed values -->
+                <div class="row text-center">
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-primary">@_age</div>
+                        <small class="text-muted">лет (возраст)</small>
+                    </div>
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold text-success">@_tenure</div>
+                        <small class="text-muted">лет (стаж)</small>
+                    </div>
+                </div>
+
+                <hr />
+                <!-- Edit button -->
+                <button class="btn btn-outline-primary mb-2" @onclick="() => _showEditModal = true">
+                    <i class="bi bi-pencil me-1"></i> Редактировать
+                </button>
+
+                @if (_isActive)
+                {
+                    <button class="btn btn-outline-warning mb-2" @onclick="() => _showTransferModal = true">
+                        <i class="bi bi-arrow-left-right me-1"></i> Перевести
+                    </button>
+                    <button class="btn btn-outline-danger" @onclick="() => _showDismissModal = true">
+                        <i class="bi bi-door-open me-1"></i> Уволить
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Details & History -->
+        <div class="col-md-8">
+            <div class="card shadow mb-3">
+                <div class="card-header"><strong>Личные данные</strong></div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <p><strong>Пол:</strong> @(_employee.Gender == Gender.Male ? "Мужской" : "Женский")</p>
+                            <p><strong>Дата рождения:</strong> @_employee.BirthDate.ToLocalTime().ToString("dd.MM.yyyy")</p>
+                        </div>
+                        <div class="col-sm-6">
+                            <p><strong>Телефон:</strong> @(_employee.Phone ?? "—")</p>
+                            <p><strong>Email:</strong> @(_employee.Email ?? "—")</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow">
+                <div class="card-header"><strong>История карьеры</strong></div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Событие</th>
+                                <th>Подразделение</th>
+                                <th>Должность</th>
+                                <th>Дата</th>
+                                <th>Комментарий</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var cr in _history)
+                            {
+                                <tr class="@(cr.EventType == EventType.Dismissal ? "table-danger" : cr.EventType == EventType.Transfer ? "table-warning" : "table-success")">
+                                    <td>
+                                        @switch (cr.EventType)
+                                        {
+                                            case EventType.Hire: <span><i class="bi bi-person-check-fill text-success"></i> Приём</span>; break;
+                                            case EventType.Transfer: <span><i class="bi bi-arrow-left-right text-warning"></i> Перевод</span>; break;
+                                            case EventType.Dismissal: <span><i class="bi bi-person-x-fill text-danger"></i> Увольнение</span>; break;
+                                        }
+                                    </td>
+                                    <td>@cr.Department?.Name</td>
+                                    <td>@cr.Position</td>
+                                    <td>@cr.EventDate.ToLocalTime().ToString("dd.MM.yyyy")</td>
+                                    <td>@(cr.Comment ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger d-flex align-items-center mt-3">
+        <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+        <div>@_error</div>
+    </div>
+}
+
+@if (_showEditModal && _employee != null)
+{
+    <EmployeeEditModal Employee="_employee" OnSaved="HandleEdited" OnCancel="() => _showEditModal = false" />
+}
+
+@if (_showTransferModal && _employee != null)
+{
+    <TransferModal EmployeeId="_employee.Id" CurrentEventDate="_currentRecord?.EventDate"
+                   OnSaved="HandleTransferred" OnCancel="() => _showTransferModal = false" />
+}
+
+@if (_showDismissModal && _employee != null)
+{
+    <DismissModal EmployeeId="_employee.Id" CurrentEventDate="_currentRecord?.EventDate"
+                  OnSaved="HandleDismissed" OnCancel="() => _showDismissModal = false" />
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Employee? _employee;
+    private CareerRecord? _currentRecord;
+    private List<CareerRecord> _history = new();
+    private bool _loading = true;
+    private bool _isActive;
+    private int _age;
+    private int _tenure;
+    private bool _showEditModal;
+    private bool _showTransferModal;
+    private bool _showDismissModal;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _employee = null;
+        _currentRecord = null;
+        _history = new();
+        _isActive = false;
+
+        try
+        {
+            _employee = await EmpService.GetByIdAsync(Id);
+            if (_employee != null)
+            {
+                _history = await CareerService.GetHistoryAsync(Id);
+                _currentRecord = await CareerService.GetCurrentRecordAsync(Id);
+                _isActive = await CareerService.IsEmployeeActiveAsync(Id);
+                _age = DateHelper.CalculateAge(_employee.BirthDate);
+
+                // Стаж: от первого приёма до сегодня (или до даты увольнения)
+                var hireRecord = _history
+                    .Where(cr => cr.EventType == EventType.Hire)
+                    .OrderBy(cr => cr.EventDate)
+                    .FirstOrDefault();
+                var dismissRecord = _history
+                    .FirstOrDefault(cr => cr.EventType == EventType.Dismissal);
+                if (hireRecord != null)
+                    _tenure = DateHelper.CalculateTenure(hireRecord.EventDate, dismissRecord?.EventDate);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+        // Принудительное обновление UI после загрузки
+        StateHasChanged();
+    }
+
+    private async Task HandleEdited()
+    {
+        _showEditModal = false;
+        await LoadAsync();
+    }
+
+    private async Task HandleTransferred()
+    {
+        _showTransferModal = false;
+        await LoadAsync();
+    }
+
+    private async Task HandleDismissed()
+    {
+        _showDismissModal = false;
+        await LoadAsync();
+    }
+}

@@ -1,0 +1,228 @@
+@page "/departments"
+@rendermode InteractiveServer
+@inject IDepartmentService DeptService
+
+<PageTitle>Подразделения</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>🏢 Структурные подразделения</h3>
+    <button class="btn btn-success" @onclick="OpenCreate">
+        <i class="bi bi-plus-circle me-1"></i> Добавить
+    </button>
+</div>
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_tree.Count == 0)
+{
+    <div class="alert alert-info">Нет подразделений. Создайте первое!</div>
+}
+else
+{
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Код</th>
+                        <th>Наименование</th>
+                        <th>Аббревиатура</th>
+                        <th>Дата создания</th>
+                        <th>Статус</th>
+                        <th class="text-end">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var node in _tree)
+                    {
+                        @RenderNode(node, 0)
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger d-flex align-items-center mt-3">
+        <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+        <div>@_error</div>
+    </div>
+}
+
+<!-- Modal: Add/Edit -->
+@if (_showFormModal)
+{
+    <DepartmentFormModal
+        Department="_editDept"
+        AllDepartments="_allDepts"
+        OnSave="HandleSave"
+        OnCancel="CloseModal" />
+}
+
+@code {
+    private List<DepartmentTreeNode> _tree = new();
+    private List<Department> _allDepts = new();
+    private bool _loading = true;
+    private bool _showFormModal;
+    private Department _editDept = new();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _tree = await DeptService.GetTreeAsync();
+        _allDepts = await DeptService.GetAllAsync();
+        _loading = false;
+    }
+
+    private void OpenCreate()
+    {
+        _editDept = new Department { CreatedAt = DateTime.UtcNow };
+        _error = null;
+        _showFormModal = true;
+    }
+
+    private void OpenEdit(Department dept)
+    {
+        _editDept = new Department
+        {
+            Id = dept.Id,
+            Code = dept.Code,
+            Name = dept.Name,
+            Abbreviation = dept.Abbreviation,
+            CreatedAt = dept.CreatedAt,
+            ClosedAt = dept.ClosedAt,
+            ParentDepartmentId = dept.ParentDepartmentId
+        };
+        _error = null;
+        _showFormModal = true;
+    }
+
+    private void CloseModal() => _showFormModal = false;
+
+    private async Task HandleSave(Department dept)
+    {
+        try
+        {
+            _error = null;
+            if (dept.Id == 0)
+                await DeptService.CreateAsync(dept);
+            else
+                await DeptService.UpdateAsync(dept);
+            _showFormModal = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Liquidate(Department dept)
+    {
+        try
+        {
+            _error = null;
+            await DeptService.LiquidateAsync(dept.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Restore(Department dept)
+    {
+        try
+        {
+            _error = null;
+            await DeptService.RestoreAsync(dept.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task HardDelete(Department dept)
+    {
+        try
+        {
+            _error = null;
+            await DeptService.HardDeleteAsync(dept.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private RenderFragment RenderNode(DepartmentTreeNode node, int depth) => __builder =>
+    {
+        var dept = node.Department;
+        <tr class="@(dept.IsActive ? "" : "table-secondary text-muted")">
+            <td>
+                <span style="margin-left: @(depth * 20)px">
+                    @if (node.Children.Count > 0)
+                    {
+                        <i class="bi bi-folder-fill text-warning me-1"></i>
+                    }
+                    else
+                    {
+                        <i class="bi bi-dash me-1"></i>
+                    }
+                    @dept.Code
+                </span>
+            </td>
+            <td>@dept.Name</td>
+            <td>@dept.Abbreviation</td>
+            <td>@dept.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy")</td>
+            <td>
+                @if (dept.IsActive)
+                {
+                    <span class="badge bg-success">Активно</span>
+                }
+                else
+                {
+                    <span class="badge bg-secondary">Ликвидировано @dept.ClosedAt!.Value.ToLocalTime().ToString("dd.MM.yyyy")</span>
+                }
+            </td>
+            <td class="text-end">
+                @if (dept.IsActive)
+                {
+                    <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => OpenEdit(dept)" title="Редактировать">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => Liquidate(dept)"
+                            title="Ликвидировать подразделение">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-success me-1" @onclick="() => Restore(dept)"
+                            title="Восстановить подразделение">
+                        <i class="bi bi-arrow-counterclockwise"></i> Вернуть в работу
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => HardDelete(dept)"
+                            title="Удалить навсегда (только если не было сотрудников)">
+                        <i class="bi bi-trash3"></i> Удалить
+                    </button>
+                }
+            </td>
+        </tr>
+        @foreach (var child in node.Children)
+        {
+            @RenderNode(child, depth + 1)
+        }
+    };
+}

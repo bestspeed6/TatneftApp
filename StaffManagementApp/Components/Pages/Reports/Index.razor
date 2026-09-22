@@ -1,0 +1,167 @@
+@page "/reports"
+@rendermode InteractiveServer
+@inject IReportService ReportService
+@inject IJSRuntime JS
+
+<PageTitle>Кадровые отчёты</PageTitle>
+
+<h3 class="mb-3">📊 Кадровые отчёты</h3>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-bold">Дата начала</label>
+                <input type="date" class="form-control" @bind="_startDate" @bind:format="yyyy-MM-dd" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">Дата конца</label>
+                <input type="date" class="form-control" @bind="_endDate" @bind:format="yyyy-MM-dd" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">Тип события</label>
+                <select class="form-select" @bind="_eventTypeFilter">
+                    <option value="">— Все события —</option>
+                    <option value="Hire">Приём на работу</option>
+                    <option value="Transfer">Перевод</option>
+                    <option value="Dismissal">Увольнение</option>
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button class="btn btn-primary flex-fill" @onclick="RunReport">
+                    <i class="bi bi-funnel-fill me-1"></i> Сформировать
+                </button>
+                @if (_rows.Count > 0)
+                {
+                    <button class="btn btn-success" @onclick="ExportExcel" title="Экспорт в Excel">
+                        <i class="bi bi-file-earmark-excel-fill"></i>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
+}
+else if (_hasRun)
+{
+    @if (_rows.Count == 0)
+    {
+        <div class="alert alert-info">За указанный период данных не найдено.</div>
+    }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="text-muted">Найдено записей: <strong>@_rows.Count</strong></span>
+        </div>
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Таб. №</th>
+                            <th>ФИО</th>
+                            <th>Подразделение</th>
+                            <th>Должность</th>
+                            <th>Событие</th>
+                            <th>Дата</th>
+                            <th>Комментарий</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _rows)
+                        {
+                            <tr class="@GetRowClass(row.EventType)">
+                                <td>@row.PersonnelNumber</td>
+                                <td>@row.FullName</td>
+                                <td>@row.DepartmentName</td>
+                                <td>@row.Position</td>
+                                <td>
+                                    @switch (row.EventType)
+                                    {
+                                        case EventType.Hire:
+                                            <span class="badge bg-success"><i class="bi bi-person-check-fill me-1"></i>Приём</span>;
+                                            break;
+                                        case EventType.Transfer:
+                                            <span class="badge bg-warning text-dark"><i class="bi bi-arrow-left-right me-1"></i>Перевод</span>;
+                                            break;
+                                        case EventType.Dismissal:
+                                            <span class="badge bg-danger"><i class="bi bi-person-x-fill me-1"></i>Увольнение</span>;
+                                            break;
+                                    }
+                                </td>
+                                <td>@row.EventDate.ToLocalTime().ToString("dd.MM.yyyy")</td>
+                                <td>@(row.Comment ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private DateTime _startDate = new DateTime(DateTime.Today.Year, 1, 1);
+    private DateTime _endDate = DateTime.Today;
+    private string _eventTypeFilter = string.Empty;
+    private List<ReportRow> _rows = new();
+    private bool _loading;
+    private bool _hasRun;
+    private string? _error;
+
+    private async Task RunReport()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            EventType? filter = _eventTypeFilter switch
+            {
+                "Hire" => EventType.Hire,
+                "Transfer" => EventType.Transfer,
+                "Dismissal" => EventType.Dismissal,
+                _ => null
+            };
+            _rows = await ReportService.GetReportAsync(_startDate, _endDate, filter);
+            _hasRun = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _loading = false;
+    }
+
+    private async Task ExportExcel()
+    {
+        try
+        {
+            var bytes = ReportService.ExportToExcel(_rows);
+            var base64 = Convert.ToBase64String(bytes);
+            var fileName = $"hr-report-{DateTime.Today:yyyy-MM-dd}.xlsx";
+            await JS.InvokeVoidAsync("downloadFileFromBase64", base64, fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static string GetRowClass(EventType t) => t switch
+    {
+        EventType.Hire => "table-success",
+        EventType.Transfer => "table-warning",
+        EventType.Dismissal => "table-danger",
+        _ => ""
+    };
+}

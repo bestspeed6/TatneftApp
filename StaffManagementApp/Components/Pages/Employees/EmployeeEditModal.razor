@@ -1,0 +1,256 @@
+@inject IEmployeeService EmpService
+@inject IFileStorageService FileService
+
+<div class="modal show d-block" tabindex="-1" style="background:rgba(0,0,0,0.5)">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-fill me-2"></i>Редактировать сотрудника</h5>
+                <button type="button" class="btn-close btn-close-white" @onclick="OnCancel"></button>
+            </div>
+            <div class="modal-body">
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="alert alert-danger d-flex align-items-center mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+                        <div>@_error</div>
+                    </div>
+                }
+                <EditForm Model="_model" OnValidSubmit="HandleSubmit">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Табельный номер *</label>
+                            <InputText class="form-control" @bind-Value="_model.PersonnelNumber"
+                                       placeholder="3–10 цифр, без букв" />
+                            <ValidationMessage For="() => _model.PersonnelNumber" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Пол</label>
+                            <InputSelect class="form-select" @bind-Value="_model.Gender">
+                                <option value="@Gender.Male">Мужской</option>
+                                <option value="@Gender.Female">Женский</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Фамилия *</label>
+                            <InputText class="form-control" @bind-Value="_model.LastName"
+                                       placeholder="Только кириллица" maxlength="50" />
+                            <ValidationMessage For="() => _model.LastName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Имя *</label>
+                            <InputText class="form-control" @bind-Value="_model.FirstName"
+                                       placeholder="Только кириллица" maxlength="50" />
+                            <ValidationMessage For="() => _model.FirstName" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Отчество</label>
+                            <InputText class="form-control" @bind-Value="_model.MiddleName"
+                                       placeholder="Только кириллица" maxlength="50" />
+                            <ValidationMessage For="() => _model.MiddleName" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Дата рождения *</label>
+                            <InputDate class="form-control" @bind-Value="_model.BirthDate" />
+                            <ValidationMessage For="() => _model.BirthDate" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Телефон</label>
+                            <InputText class="form-control" @bind-Value="_model.Phone" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <InputText class="form-control" @bind-Value="_model.Email" type="email" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Фото</label>
+                            <InputFile class="form-control" OnChange="HandlePhoto"
+                                       accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+                            @if (!string.IsNullOrEmpty(_photoError))
+                            {
+                                <div class="text-danger small mt-1">@_photoError</div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="modal-footer px-0 pb-0 mt-3">
+                        <button type="button" class="btn btn-secondary" @onclick="OnCancel">Отмена</button>
+                        <button type="submit" class="btn btn-primary" disabled="@_saving">
+                            @if (_saving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            Сохранить
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Employee Employee { get; set; } = new();
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private EditFormModel _model = new();
+    private IBrowserFile? _photoFile;
+    private bool _saving;
+    private string? _error;
+    private string? _photoError;
+
+    protected override void OnParametersSet()
+    {
+        _model = new EditFormModel
+        {
+            PersonnelNumber = Employee.PersonnelNumber,
+            LastName = Employee.LastName,
+            FirstName = Employee.FirstName,
+            MiddleName = Employee.MiddleName,
+            Gender = Employee.Gender,
+            BirthDate = Employee.BirthDate.ToLocalTime(),
+            Phone = Employee.Phone,
+            Email = Employee.Email
+        };
+        _error = null;
+        _photoError = null;
+    }
+
+    private void HandlePhoto(InputFileChangeEventArgs e)
+    {
+        _photoFile = e.File;
+        _photoError = null;
+
+        var name = e.File.Name.ToLowerInvariant();
+        if (!name.EndsWith(".jpg") && !name.EndsWith(".jpeg") &&
+            !name.EndsWith(".png") && !name.EndsWith(".webp"))
+        {
+            _photoError = "Допустимы только форматы: JPEG, PNG, WEBP";
+            _photoFile = null;
+        }
+        else if (e.File.Size > 5 * 1024 * 1024)
+        {
+            _photoError = "Размер файла не должен превышать 5 МБ";
+            _photoFile = null;
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        _error = null;
+
+        var validationError = ValidateModel();
+        if (validationError != null)
+        {
+            _error = validationError;
+            return;
+        }
+
+        var isUnique = await EmpService.IsPersonnelNumberUniqueAsync(_model.PersonnelNumber.Trim(), Employee.Id);
+        if (!isUnique)
+        {
+            _error = $"Сотрудник с табельным номером {_model.PersonnelNumber.Trim()} уже зарегистрирован.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            string? newPhotoPath = null;
+            if (_photoFile != null)
+            {
+                await using var stream = _photoFile.OpenReadStream(5 * 1024 * 1024);
+                newPhotoPath = await FileService.SavePhotoAsync(stream, _photoFile.Name, _photoFile.ContentType);
+                await FileService.DeletePhotoAsync(Employee.PhotoPath);
+            }
+
+            var updated = new Employee
+            {
+                Id = Employee.Id,
+                PersonnelNumber = _model.PersonnelNumber.Trim(),
+                LastName = _model.LastName.Trim(),
+                FirstName = _model.FirstName.Trim(),
+                MiddleName = string.IsNullOrWhiteSpace(_model.MiddleName) ? null : _model.MiddleName.Trim(),
+                Gender = _model.Gender,
+                BirthDate = _model.BirthDate.ToUniversalTime(),
+                Phone = _model.Phone,
+                Email = _model.Email,
+                PhotoPath = newPhotoPath
+            };
+
+            await EmpService.UpdateAsync(updated);
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        _saving = false;
+    }
+
+    /// <summary>Серверная валидация: хотя бы одна буква кириллицы + ограничение длины.</summary>
+    private string? ValidateModel()
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(_model.PersonnelNumber.Trim(), @"^\d{3,10}$"))
+            return "Табельный номер должен содержать от 3 до 10 цифр (только цифры).";
+
+        // Требуем хотя бы одну букву кириллицы
+        var cyrillicRe = new System.Text.RegularExpressions.Regex(@"^[А-Яа-яЁё\s\-]*[А-ЯЁа-яё][А-Яа-яЁё\s\-]*$");
+
+        if (_model.LastName.Trim().Length < 2)
+            return "Фамилия должна содержать минимум 2 символа.";
+        if (_model.LastName.Trim().Length > 50)
+            return "Фамилия не должна превышать 50 символов.";
+        if (!cyrillicRe.IsMatch(_model.LastName.Trim()))
+            return "Фамилия должна содержать хотя бы одну букву кириллицы (не только тире/пробелы).";
+
+        if (_model.FirstName.Trim().Length < 2)
+            return "Имя должно содержать минимум 2 символа.";
+        if (_model.FirstName.Trim().Length > 50)
+            return "Имя не должно превышать 50 символов.";
+        if (!cyrillicRe.IsMatch(_model.FirstName.Trim()))
+            return "Имя должно содержать хотя бы одну букву кириллицы (не только тире/пробелы).";
+
+        if (!string.IsNullOrWhiteSpace(_model.MiddleName))
+        {
+            if (_model.MiddleName.Trim().Length > 50)
+                return "Отчество не должно превышать 50 символов.";
+            if (!cyrillicRe.IsMatch(_model.MiddleName.Trim()))
+                return "Отчество должно содержать хотя бы одну букву кириллицы (не только тире/пробелы).";
+        }
+
+        return null;
+    }
+
+    private class EditFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Обязательное поле")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^\d{3,10}$",
+            ErrorMessage = "Табельный номер: только цифры, от 3 до 10")]
+        public string PersonnelNumber { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Обязательное поле")]
+        [System.ComponentModel.DataAnnotations.MinLength(2, ErrorMessage = "Минимум 2 символа")]
+        [System.ComponentModel.DataAnnotations.MaxLength(50, ErrorMessage = "Не более 50 символов")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^[А-Яа-яЁё\s\-]*[А-ЯЁа-яё][А-Яа-яЁё\s\-]*$",
+            ErrorMessage = "Только кириллица, должна содержать хотя бы одну букву")]
+        public string LastName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Обязательное поле")]
+        [System.ComponentModel.DataAnnotations.MinLength(2, ErrorMessage = "Минимум 2 символа")]
+        [System.ComponentModel.DataAnnotations.MaxLength(50, ErrorMessage = "Не более 50 символов")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^[А-Яа-яЁё\s\-]*[А-ЯЁа-яё][А-Яа-яЁё\s\-]*$",
+            ErrorMessage = "Только кириллица, должна содержать хотя бы одну букву")]
+        public string FirstName { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.MaxLength(50, ErrorMessage = "Не более 50 символов")]
+        [System.ComponentModel.DataAnnotations.RegularExpression(@"^[А-Яа-яЁё\s\-]*[А-ЯЁа-яё][А-Яа-яЁё\s\-]*$",
+            ErrorMessage = "Только кириллица, должна содержать хотя бы одну букву")]
+        public string? MiddleName { get; set; }
+
+        public Gender Gender { get; set; }
+        public DateTime BirthDate { get; set; }
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+    }
+}
