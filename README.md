@@ -8,7 +8,7 @@ Staff Management App
 - Bootstrap 5 + Bootstrap Icons — UI
 
 ## Структура проекта
-
+```
 StaffManagementApp/
 ├── Data/
 │   ├── AppDbContext.cs            ← EF Core контекст
@@ -49,7 +49,7 @@ StaffManagementApp/
 ├── Dockerfile                     ← Multi-stage .NET 10
 └── .dockerignore
 docker-compose.yml                 ← app + db (PostgreSQL 16)
-
+```
 
 ## Запуск через Docker Compose:
 docker-compose up --build
